@@ -1,7 +1,8 @@
 const express = require('express');
 const cors = require('cors');
 const { MongoClient, ServerApiVersion, ObjectId } = require('mongodb');
-require('dotenv').config()
+require('dotenv').config();
+let jwt = require('jsonwebtoken');
 const app = express();
 const port = process.env.PORT || 3000;
 
@@ -12,8 +13,9 @@ app.use(express.json());
 app.get('/', (req, res) => {
     res.send('car doctor is running')
 })
+const uri = `mongodb://${process.env.USE_NAME}:${process.env.SECRET_KEY}@ac-eh9wica-shard-00-00.kh5m3gl.mongodb.net:27017,ac-eh9wica-shard-00-01.kh5m3gl.mongodb.net:27017,ac-eh9wica-shard-00-02.kh5m3gl.mongodb.net:27017/?ssl=true&replicaSet=atlas-ixs7p9-shard-0&authSource=admin&retryWrites=true&w=majority`
 
-const uri = `mongodb+srv://${process.env.USE_NAME}:${process.env.SECRET_KEY}@cluster0.kh5m3gl.mongodb.net/?retryWrites=true&w=majority`;
+// const uri = `mongodb+srv://${process.env.USE_NAME}:${process.env.SECRET_KEY}@cluster0.kh5m3gl.mongodb.net/?retryWrites=true&w=majority`;
 
 // Create a MongoClient with a MongoClientOptions object to set the Stable API version
 const client = new MongoClient(uri, {
@@ -24,14 +26,43 @@ const client = new MongoClient(uri, {
     }
 });
 
+const verifyJwt = (req, res, next) => {
+    console.log('hitting');
+    const authorization = req.headers.authorization;
+    console.log(authorization);
+    if (!authorization) {
+        return res.status(403).send({ error: true, message: 'unauthorized access' })
+    }
+    const token = authorization.split(' ')[1];
+    console.log(token);
+    jwt.verify(token, process.env.ACCESS_TOKEN, (error, decoded) => {
+        console.log(error, decoded);
+        if (error) {
+            return res.status(403).send({ error: true, message: 'unauthorized access' })
+        }
+        req.decoded = decoded;
+        next();
+    })
+}
+
 async function run() {
     try {
         // Connect the client to the server	(optional starting in v4.7)
-        await client.connect();
-
+        // await client.connect();
         const serviceCollection = client.db('carDoctor').collection('services');
         const bookingCollection = client.db('carDoctor').collection('bookings');
 
+        // jwt
+        app.post('/jwt', (req, res) => {
+            const user = req.body;
+            console.log(user);
+            const token = jwt.sign(user, process.env.ACCESS_TOKEN, {
+                expiresIn: '1d'
+            });
+            res.send({ token })
+        })
+
+        // service route
         app.get('/services', async (req, res) => {
             const cursor = serviceCollection.find();
             const result = await cursor.toArray();
@@ -50,9 +81,10 @@ async function run() {
             res.send(result)
         })
         // bookings
-        app.get('/bookings', async (req, res) => {
+        app.get('/bookings', verifyJwt, async (req, res) => {
+            // console.log(req.headers.authorization);
             let query = {}
-            if (req, query?.email) {
+            if (req.query?.email) {
                 query = {
                     email: req.query.email
                 }
